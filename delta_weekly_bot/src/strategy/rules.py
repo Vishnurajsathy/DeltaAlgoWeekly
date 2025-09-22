@@ -91,3 +91,70 @@ class PrecheckRules:
             logger.info("All PRECHECK rules passed successfully.")
 
         return all_ok
+
+from ..data.models import Position
+
+class MonitorRules:
+    """
+    Encapsulates the set of rules to be checked in the MONITOR state
+    for a single open position.
+    """
+    def __init__(self, config: Config, position: Position):
+        self.config = config
+        self.position = position
+
+    def should_stop_loss(self) -> bool:
+        """
+        Checks if the position has hit its stop-loss based on the premium received.
+        For a short position, this triggers if the mark price rises significantly.
+        Stop Loss = Entry Price * (1 + SL%)
+        """
+        # This rule only applies to short positions (negative size)
+        if self.position.size >= 0:
+            return False
+
+        stop_loss_pct = self.config.risk.leg_stop_loss_pct
+        entry_price = self.position.entry_price
+        mark_price = self.position.mark_price
+
+        if entry_price <= 0:  # Cannot calculate percentage-based SL on zero or negative credit
+            return False
+
+        stop_price_threshold = entry_price * (1 + (stop_loss_pct / 100.0))
+
+        if mark_price >= stop_price_threshold:
+            logger.warning(
+                f"STOP-LOSS TRIGGERED for {self.position.symbol}: "
+                f"Mark Price ({mark_price:.2f}) >= Stop Threshold ({stop_price_threshold:.2f})"
+            )
+            return True
+
+        return False
+
+    def should_take_profit(self) -> bool:
+        """
+        Checks if the position has reached its take-profit target based on premium decay.
+        For a short position, this triggers if the mark price falls significantly.
+        Take Profit Price = Entry Price * (1 - TP%)
+        """
+        # This rule only applies to short positions
+        if self.position.size >= 0:
+            return False
+
+        take_profit_pct = self.config.risk.take_profit_pct
+        entry_price = self.position.entry_price
+        mark_price = self.position.mark_price
+
+        if entry_price <= 0:
+            return False
+
+        profit_price_threshold = entry_price * (1 - (take_profit_pct / 100.0))
+
+        if mark_price <= profit_price_threshold:
+            logger.info(
+                f"TAKE-PROFIT TRIGGERED for {self.position.symbol}: "
+                f"Mark Price ({mark_price:.2f}) <= Profit Threshold ({profit_price_threshold:.2f})"
+            )
+            return True
+
+        return False

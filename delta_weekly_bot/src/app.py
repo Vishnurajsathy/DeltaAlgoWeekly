@@ -84,13 +84,20 @@ def main():
                     state_machine.transition(BotState.IDLE)
 
             elif state_machine.state == BotState.MONITOR:
-                logger.info("In MONITOR state. Checking open positions.")
-                # TODO: Implement monitoring logic.
-                if not snapshot.positions:
+                logger.info("In MONITOR state. Checking open positions for SL/TP.")
+                close_actions = engine.handle_monitor_state(snapshot)
+
+                if close_actions:
+                    logger.info(f"Strategy engine generated {len(close_actions)} closing action(s).")
+                    broker.execute_close_order_actions(close_actions)
+                    # After closing a leg, re-evaluate the whole state on the next cycle.
+                    state_machine.transition(BotState.PRECHECK)
+                elif not snapshot.positions:
                      logger.info("No open positions found. Returning to PRECHECK.")
                      state_machine.transition(BotState.PRECHECK)
                 else:
-                    logger.info(f"Found {len(snapshot.positions)} open positions to monitor.")
+                    logger.info(f"No actions needed for {len(snapshot.positions)} open position(s). Continuing to monitor.")
+                    # Stay in MONITOR state
 
 
             # ... other states like ADJUST, HEDGE_ROLL will be added here ...
