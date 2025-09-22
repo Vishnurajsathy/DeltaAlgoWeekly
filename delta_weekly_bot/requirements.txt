@@ -1,0 +1,14 @@
+# Core application dependencies
+pydantic
+PyYAML
+loguru
+streamlit
+requests
+pandas
+pyarrow
+delta-rest-client
+
+# For development and testing (can be moved to a dev-requirements.txt later)
+pytest
+black
+isort

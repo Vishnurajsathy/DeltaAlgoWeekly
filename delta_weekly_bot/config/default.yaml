@@ -1,0 +1,64 @@
+general:
+  dry_run: false
+  base_ccy: "USDT"
+  timezone: "Asia/Kolkata"
+  poll_interval_seconds: 60
+  symbols:
+    underlying: "BTCUSDT"
+    futures: "BTCUSDT_PERP"
+
+risk:
+  max_margin_usage_pct: 45
+  max_daily_loss_pct: 1.5
+  max_weekly_loss_pct: 3.0
+  leg_stop_loss_pct: 120
+  take_profit_pct: 50
+  hard_kill_if_equity_drawdown_pct: 10
+  min_free_collateral_pct: 40
+
+filters:
+  iv:
+    min_ivr: 20
+    avoid_if_iv_spike_pct: 40
+  atr_window: 14
+  avoid_big_event: true
+  weekend_size_reduction_pct: 50
+
+entry:
+  weekly_target_delta: [0.05, 0.10]
+  min_credit_usdt_per_leg: 5
+  distance_sigma_min: 1.5
+  rebid_spread_bp: 15
+
+hedge:
+  type: "monthly_atm_straddle"
+  notionals_ratio: 1.0
+  roll_days_before_expiry: 2
+  delta_hedge_futures:
+    enabled: true
+    rebalance_threshold: 0.10
+    max_futures_notional_vs_equity: 0.5
+
+adjustments:
+  threaten_threshold_pct_from_strike: 5
+  roll_ahead_weeks: 1
+  put_call_recenter: true
+  widen_on_profit_lock: true
+
+monitoring:
+  per_minute_chain: true
+  quadrant_window_minutes: 15
+  alert_on:
+    margin_usage_exceeds_pct: 35
+    pnl_drawdown_pct: 1
+    iv_spike_pct: 25
+
+dashboard:
+  enable: true
+  port: 8088
+  auth: false
+
+logging:
+  level: "INFO"
+  to_file: true
+  file_path: "./runtime/trade_log.jsonl"
