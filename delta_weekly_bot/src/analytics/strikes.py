@@ -81,6 +81,8 @@ def select_short_strangle_legs(chain: OptionsChain, config: Config) -> Tuple[Opt
 
     return selected_call, selected_put
 
+from typing import List
+
 def select_new_leg_for_roll(
     threatened_leg: Option,
     chain: OptionsChain,
@@ -88,14 +90,47 @@ def select_new_leg_for_roll(
 ) -> Optional[Option]:
     """
     Selects a new option to roll a threatened leg to.
-    It looks for a new strike further OTM with a suitable delta and premium.
-
-    TODO: Implement the full logic to find the 'next' strike.
-    For now, this is a placeholder and will not find any roll opportunities.
+    It looks for a new strike further OTM that meets the entry criteria.
     """
     logger.info(f"Searching for a new leg to roll the threatened position: {threatened_leg.symbol}")
-    # A real implementation would filter the chain for same-type options,
-    # further OTM than the threatened leg, and then apply delta/credit rules.
-    # For example, for a threatened call at 50k, it would look for calls > 50k.
-    logger.warning("Roll selection logic is not yet implemented. No roll will be found.")
-    return None
+
+    target_delta_min = config.entry.weekly_target_delta[0]
+    target_delta_max = config.entry.weekly_target_delta[1]
+    min_credit = config.entry.min_credit_usdt_per_leg
+
+    eligible_rolls: List[Option] = []
+
+    if threatened_leg.option_type == 'call':
+        # Find calls with a higher strike price (further OTM)
+        candidate_rolls = [
+            opt for opt in chain.calls if opt.strike > threatened_leg.strike
+        ]
+        # Filter those candidates by delta and credit
+        eligible_rolls = [
+            opt for opt in candidate_rolls
+            if opt.greeks and target_delta_min <= opt.greeks.delta <= target_delta_max and opt.best_bid >= min_credit
+        ]
+        # Sort by strike ascending to find the closest roll
+        eligible_rolls.sort(key=lambda o: o.strike)
+
+    elif threatened_leg.option_type == 'put':
+        # Find puts with a lower strike price (further OTM)
+        candidate_rolls = [
+            opt for opt in chain.puts if opt.strike < threatened_leg.strike
+        ]
+        # Filter those candidates by delta and credit
+        eligible_rolls = [
+            opt for opt in candidate_rolls
+            if opt.greeks and target_delta_min <= abs(opt.greeks.delta) <= target_delta_max and opt.best_bid >= min_credit
+        ]
+        # Sort by strike descending to find the closest roll
+        eligible_rolls.sort(key=lambda o: o.strike, reverse=True)
+
+    if not eligible_rolls:
+        logger.warning(f"No suitable roll found for threatened {threatened_leg.option_type} leg {threatened_leg.symbol}")
+        return None
+
+    # The best roll is the first one in the sorted list (closest strike further OTM)
+    best_roll = eligible_rolls[0]
+    logger.success(f"Found best roll for {threatened_leg.symbol}: {best_roll.symbol} at strike {best_roll.strike}")
+    return best_roll

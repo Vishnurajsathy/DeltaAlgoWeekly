@@ -9,7 +9,7 @@ from typing import Union
 from ..broker.orders import PlaceOrderAction, CloseOrderAction, RollOrderAction
 from .sizing import get_position_size
 from .rules import MonitorRules
-from .strikes import select_new_leg_for_roll
+from ..analytics.strikes import select_new_leg_for_roll
 
 
 class StrategyEngine:
