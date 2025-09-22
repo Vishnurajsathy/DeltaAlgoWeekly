@@ -8,11 +8,11 @@ class Greeks(BaseModel):
     gamma: float
     theta: float
     vega: float
-    iv: float = Field(..., alias="implied_volatility")
+    iv: float
 
 class Option(BaseModel):
     """A model for a single options contract."""
-    instrument_id: str
+    instrument_id: int
     symbol: str
     expiry: datetime
     strike: float
@@ -36,7 +36,7 @@ class OptionsChain(BaseModel):
 
 class Position(BaseModel):
     """Represents an open position in a single instrument."""
-    instrument_id: str
+    instrument_id: int
     symbol: str
     size: float
     side: str  # "buy" or "sell"
@@ -59,7 +59,7 @@ class Order(BaseModel):
     """Represents a single order (live or historical)."""
     order_id: str
     client_order_id: Optional[str] = None
-    instrument_id: str
+    instrument_id: int
     price: float
     size: float
     side: str  # "buy" or "sell"

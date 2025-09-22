@@ -128,6 +128,34 @@ class DeltaAPIClient:
         self.api_key, self.api_secret = original_key, original_secret
         return response.get('result', [])
 
+    def place_order(
+        self,
+        product_id: int,
+        size: int,
+        side: str,
+        order_type: str,
+        limit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Places an order on the exchange. Requires authentication.
+        """
+        path = "/v2/orders"
+
+        payload = {
+            "product_id": product_id,
+            "size": size,
+            "side": side,
+            "order_type": f"{order_type}_order"  # API expects "limit_order" or "market_order"
+        }
+        if limit_price:
+            payload['limit_price'] = str(limit_price)  # API expects prices as strings
+        if client_order_id:
+            payload['client_order_id'] = client_order_id
+
+        response = self._send_request("POST", path, data=payload)
+        return response.get('result', {})
+
     def get_ticker(self, symbol: str) -> Dict[str, Any]:
         """
         Fetches the ticker data for a specific product symbol.
