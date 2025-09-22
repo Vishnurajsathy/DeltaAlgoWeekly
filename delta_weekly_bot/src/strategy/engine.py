@@ -5,9 +5,12 @@ from loguru import logger
 from ..utils.cfg import Config
 from ..data.models import MarketDataSnapshot
 from ..analytics.strikes import select_short_strangle_legs
-from ..broker.orders import PlaceOrderAction, CloseOrderAction
+from typing import Union
+from ..broker.orders import PlaceOrderAction, CloseOrderAction, RollOrderAction
 from .sizing import get_position_size
 from .rules import MonitorRules
+from .strikes import select_new_leg_for_roll
+
 
 class StrategyEngine:
     """
@@ -71,41 +74,59 @@ class StrategyEngine:
 
         return actions
 
-    def handle_monitor_state(self, snapshot: MarketDataSnapshot) -> List[CloseOrderAction]:
+    def handle_monitor_state(self, snapshot: MarketDataSnapshot) -> List[Union[CloseOrderAction, RollOrderAction]]:
         """
         Handles the logic for the MONITOR state. It checks each open position
-        for stop-loss or take-profit triggers.
-
-        Returns:
-            A list of CloseOrderAction objects for any positions that should be closed.
+        for SL/TP triggers or threats that require adjustment.
         """
         logger.info(f"Handling MONITOR state: Checking {len(snapshot.positions)} open position(s).")
 
-        actions: List[CloseOrderAction] = []
+        actions: List[Union[CloseOrderAction, RollOrderAction]] = []
 
-        if not snapshot.positions:
+        if not snapshot.positions or not snapshot.options_chain or not snapshot.futures_ticker:
+            logger.warning("Cannot monitor positions without position data, options chain, or spot price.")
             return actions
 
-        for position in snapshot.positions:
-            rules = MonitorRules(self.config, position)
+        # Create a quick lookup map for option details by instrument ID for efficient matching
+        option_details_map = {opt.instrument_id: opt for opt in snapshot.options_chain.calls}
+        option_details_map.update({opt.instrument_id: opt for opt in snapshot.options_chain.puts})
 
-            should_close = False
-            reason = ""
+        spot_price = snapshot.futures_ticker.mark_price
+
+        for position in snapshot.positions:
+            option_details = option_details_map.get(position.instrument_id)
+            if not option_details:
+                logger.warning(f"Could not find option details for position {position.symbol}. Skipping monitoring checks.")
+                continue
+
+            rules = MonitorRules(self.config, position, spot_price, option_details)
 
             if rules.should_stop_loss():
-                should_close = True
-                reason = "stop_loss"
-
+                actions.append(CloseOrderAction(position_to_close=position, reason="stop_loss"))
             elif rules.should_take_profit():
-                should_close = True
-                reason = "take_profit"
+                actions.append(CloseOrderAction(position_to_close=position, reason="take_profit"))
+            elif rules.is_leg_threatened():
+                logger.info(f"Leg {position.symbol} is threatened. Attempting to find a roll opportunity.")
+                new_leg_option = select_new_leg_for_roll(option_details, snapshot.options_chain, self.config)
 
-            if should_close:
-                logger.info(f"Generating close order for {position.symbol} due to: {reason}")
-                close_action = CloseOrderAction(
-                    position_to_close=position,
-                    reason=reason
-                )
-                actions.append(close_action)
+                if new_leg_option:
+                    size = abs(position.size)
+                    place_order_action = PlaceOrderAction(
+                        product_id=new_leg_option.instrument_id,
+                        symbol=new_leg_option.symbol,
+                        side="sell",
+                        size=int(size),
+                        order_type="limit",
+                        limit_price=new_leg_option.best_bid
+                    )
+                    roll_action = RollOrderAction(
+                        position_to_close=position,
+                        new_order_to_open=place_order_action,
+                        reason="threatened"
+                    )
+                    actions.append(roll_action)
+                    logger.success(f"Generated roll action for {position.symbol} to {new_leg_option.symbol}.")
+                else:
+                    logger.warning(f"Leg {position.symbol} is threatened, but no suitable roll opportunity was found. Taking no action.")
 
         return actions

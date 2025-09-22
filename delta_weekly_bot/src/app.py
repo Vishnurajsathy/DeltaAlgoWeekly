@@ -14,7 +14,7 @@ from src.data.ingestor import DataIngestor
 from src.core.state import StateMachine, BotState
 from src.strategy.rules import PrecheckRules
 from src.strategy.engine import StrategyEngine
-from src.broker.orders import OrderBroker
+from src.broker.orders import OrderBroker, CloseOrderAction, RollOrderAction
 
 def main():
     """
@@ -84,13 +84,23 @@ def main():
                     state_machine.transition(BotState.IDLE)
 
             elif state_machine.state == BotState.MONITOR:
-                logger.info("In MONITOR state. Checking open positions for SL/TP.")
-                close_actions = engine.handle_monitor_state(snapshot)
+                logger.info("In MONITOR state. Checking open positions for SL/TP or threats.")
+                actions = engine.handle_monitor_state(snapshot)
 
-                if close_actions:
-                    logger.info(f"Strategy engine generated {len(close_actions)} closing action(s).")
-                    broker.execute_close_order_actions(close_actions)
-                    # After closing a leg, re-evaluate the whole state on the next cycle.
+                if actions:
+                    # Separate actions by type and execute them
+                    close_actions = [a for a in actions if isinstance(a, CloseOrderAction)]
+                    roll_actions = [a for a in actions if isinstance(a, RollOrderAction)]
+
+                    if close_actions:
+                        logger.info(f"Executing {len(close_actions)} closing action(s).")
+                        broker.execute_close_order_actions(close_actions)
+
+                    if roll_actions:
+                        logger.info(f"Executing {len(roll_actions)} roll action(s).")
+                        broker.execute_roll_order_actions(roll_actions)
+
+                    # After taking action, always go back to PRECHECK to get a fresh view
                     state_machine.transition(BotState.PRECHECK)
                 elif not snapshot.positions:
                      logger.info("No open positions found. Returning to PRECHECK.")

@@ -92,16 +92,19 @@ class PrecheckRules:
 
         return all_ok
 
-from ..data.models import Position
+from ..data.models import Position, Option
+from typing import Optional
 
 class MonitorRules:
     """
     Encapsulates the set of rules to be checked in the MONITOR state
     for a single open position.
     """
-    def __init__(self, config: Config, position: Position):
+    def __init__(self, config: Config, position: Position, spot_price: float, option_details: Optional[Option] = None):
         self.config = config
         self.position = position
+        self.spot_price = spot_price
+        self.option_details = option_details
 
     def should_stop_loss(self) -> bool:
         """
@@ -156,5 +159,38 @@ class MonitorRules:
                 f"Mark Price ({mark_price:.2f}) <= Profit Threshold ({profit_price_threshold:.2f})"
             )
             return True
+
+        return False
+
+    def is_leg_threatened(self) -> bool:
+        """
+        Checks if a short option leg is 'threatened' by the spot price
+        moving too close to its strike price.
+        """
+        if self.position.size >= 0 or not self.option_details:
+            # Rule does not apply to long positions or if we don't have option details
+            return False
+
+        threshold_pct = self.config.adjustments.threaten_threshold_pct_from_strike
+        strike_price = self.option_details.strike
+
+        if self.option_details.option_type == 'call':
+            # Threat for a short call is spot price moving up towards the strike
+            threat_level = strike_price * (1 - (threshold_pct / 100.0))
+            if self.spot_price >= threat_level:
+                logger.warning(
+                    f"THREAT DETECTED for CALL {self.position.symbol}: "
+                    f"Spot ({self.spot_price:.2f}) >= Threat Level ({threat_level:.2f})"
+                )
+                return True
+        elif self.option_details.option_type == 'put':
+            # Threat for a short put is spot price moving down towards the strike
+            threat_level = strike_price * (1 + (threshold_pct / 100.0))
+            if self.spot_price <= threat_level:
+                logger.warning(
+                    f"THREAT DETECTED for PUT {self.position.symbol}: "
+                    f"Spot ({self.spot_price:.2f}) <= Threat Level ({threat_level:.2f})"
+                )
+                return True
 
         return False

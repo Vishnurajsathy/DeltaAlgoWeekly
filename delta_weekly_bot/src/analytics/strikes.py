@@ -80,3 +80,22 @@ def select_short_strangle_legs(chain: OptionsChain, config: Config) -> Tuple[Opt
         logger.warning("Could not find a complete strangle pair. One or both legs are missing.")
 
     return selected_call, selected_put
+
+def select_new_leg_for_roll(
+    threatened_leg: Option,
+    chain: OptionsChain,
+    config: Config
+) -> Optional[Option]:
+    """
+    Selects a new option to roll a threatened leg to.
+    It looks for a new strike further OTM with a suitable delta and premium.
+
+    TODO: Implement the full logic to find the 'next' strike.
+    For now, this is a placeholder and will not find any roll opportunities.
+    """
+    logger.info(f"Searching for a new leg to roll the threatened position: {threatened_leg.symbol}")
+    # A real implementation would filter the chain for same-type options,
+    # further OTM than the threatened leg, and then apply delta/credit rules.
+    # For example, for a threatened call at 50k, it would look for calls > 50k.
+    logger.warning("Roll selection logic is not yet implemented. No roll will be found.")
+    return None

@@ -50,42 +50,42 @@ class TestMonitoringRules(unittest.TestCase):
         """Test when mark price exceeds the stop-loss threshold."""
         # Entry at $10, SL is 100%, so threshold is $20. Mark price is $21.
         position = create_mock_position("P1", "sell", 1, 10.0, 21.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999) # spot_price doesn't matter for this rule
         self.assertTrue(rules.should_stop_loss())
 
     def test_stop_loss_not_triggered(self):
         """Test when mark price is below the stop-loss threshold."""
         # Entry at $10, SL threshold is $20. Mark price is $19.
         position = create_mock_position("P1", "sell", 1, 10.0, 19.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_stop_loss())
 
     def test_take_profit_triggered(self):
         """Test when mark price falls below the take-profit threshold."""
         # Entry at $10, TP is 50%, so threshold is $5. Mark price is $4.
         position = create_mock_position("P1", "sell", 1, 10.0, 4.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999)
         self.assertTrue(rules.should_take_profit())
 
     def test_take_profit_not_triggered(self):
         """Test when mark price is above the take-profit threshold."""
         # Entry at $10, TP threshold is $5. Mark price is $6.
         position = create_mock_position("P1", "sell", 1, 10.0, 6.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_take_profit())
 
     def test_rules_do_not_apply_to_long_positions(self):
         """Test that SL/TP rules for short positions do not trigger for long positions."""
         # Long position that would otherwise trigger SL
         position = create_mock_position("C1", "buy", 1, 10.0, 21.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_stop_loss())
         self.assertFalse(rules.should_take_profit())
 
     def test_zero_entry_price(self):
         """Test that rules do not trigger if entry price is zero to avoid errors."""
         position = create_mock_position("P1", "sell", 1, 0.0, 10.0)
-        rules = MonitorRules(self.config, position)
+        rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_stop_loss())
         self.assertFalse(rules.should_take_profit())
 
