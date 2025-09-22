@@ -8,7 +8,7 @@ pandas
 pyarrow
 delta-rest-client
 
-# For development and testing (can be moved to a dev-requirements.txt later)
+# For development and testing
 pytest
 black
 isort

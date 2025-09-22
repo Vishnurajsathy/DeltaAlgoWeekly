@@ -1,8 +1,8 @@
 from loguru import logger
-from typing import List
+from typing import List, Optional
 
 from ..utils.cfg import Config
-from ..data.models import MarketDataSnapshot
+from ..data.models import MarketDataSnapshot, Position, Option
 
 class PrecheckRules:
     """
@@ -51,9 +51,6 @@ class PrecheckRules:
         Placeholder for checking daily/weekly loss limits.
         This requires a persistent trade journal, which is not yet implemented.
         """
-        # TODO: Implement this once the trade journal (e.g., SQLite) is available.
-        # This will involve querying the journal for recent P&L and comparing against
-        # config.risk.max_daily_loss_pct and config.risk.max_weekly_loss_pct.
         logger.debug("Loss Limit Check: SKIPPED (Not Implemented)")
         return True
 
@@ -62,18 +59,13 @@ class PrecheckRules:
         Placeholder for checking if the Implied Volatility Rank (IVR) meets the minimum threshold.
         This requires historical IV data and the analytics module.
         """
-        # TODO: Implement this once the analytics/iv.py module is built.
-        # This will involve fetching historical IV, calculating IVR, and comparing against
-        # config.filters.iv.min_ivr.
         logger.debug("IV Rank Check: SKIPPED (Not Implemented)")
         return True
 
     def are_all_checks_ok(self) -> bool:
         """
         Runs all pre-check rules and returns True if all pass.
-        Logs any failures.
         """
-        # The order matters, check API health first.
         checks = [
             self.check_api_health,
             self.check_margin_usage,
@@ -92,9 +84,6 @@ class PrecheckRules:
 
         return all_ok
 
-from ..data.models import Position, Option
-from typing import Optional
-
 class MonitorRules:
     """
     Encapsulates the set of rules to be checked in the MONITOR state
@@ -109,10 +98,7 @@ class MonitorRules:
     def should_stop_loss(self) -> bool:
         """
         Checks if the position has hit its stop-loss based on the premium received.
-        For a short position, this triggers if the mark price rises significantly.
-        Stop Loss = Entry Price * (1 + SL%)
         """
-        # This rule only applies to short positions (negative size)
         if self.position.size >= 0:
             return False
 
@@ -120,7 +106,7 @@ class MonitorRules:
         entry_price = self.position.entry_price
         mark_price = self.position.mark_price
 
-        if entry_price <= 0:  # Cannot calculate percentage-based SL on zero or negative credit
+        if entry_price <= 0:
             return False
 
         stop_price_threshold = entry_price * (1 + (stop_loss_pct / 100.0))
@@ -137,10 +123,7 @@ class MonitorRules:
     def should_take_profit(self) -> bool:
         """
         Checks if the position has reached its take-profit target based on premium decay.
-        For a short position, this triggers if the mark price falls significantly.
-        Take Profit Price = Entry Price * (1 - TP%)
         """
-        # This rule only applies to short positions
         if self.position.size >= 0:
             return False
 
@@ -168,14 +151,12 @@ class MonitorRules:
         moving too close to its strike price.
         """
         if self.position.size >= 0 or not self.option_details:
-            # Rule does not apply to long positions or if we don't have option details
             return False
 
         threshold_pct = self.config.adjustments.threaten_threshold_pct_from_strike
         strike_price = self.option_details.strike
 
         if self.option_details.option_type == 'call':
-            # Threat for a short call is spot price moving up towards the strike
             threat_level = strike_price * (1 - (threshold_pct / 100.0))
             if self.spot_price >= threat_level:
                 logger.warning(
@@ -184,7 +165,6 @@ class MonitorRules:
                 )
                 return True
         elif self.option_details.option_type == 'put':
-            # Threat for a short put is spot price moving down towards the strike
             threat_level = strike_price * (1 + (threshold_pct / 100.0))
             if self.spot_price <= threat_level:
                 logger.warning(

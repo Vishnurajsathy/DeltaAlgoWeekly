@@ -8,17 +8,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.strategy.rules import MonitorRules
 from src.data.models import Position
+from src.utils.cfg import Config
 
 # --- Mock Objects for Testing ---
-
-@dataclass
-class MockConfig:
-    risk: 'MockRiskConfig'
 
 @dataclass
 class MockRiskConfig:
     leg_stop_loss_pct: float
     take_profit_pct: float
+
+@dataclass
+class MockFullConfig(Config):
+    risk: MockRiskConfig
 
 def create_mock_position(symbol: str, side: str, size: float, entry: float, mark: float) -> Position:
     """Helper function to create mock Position objects."""
@@ -39,7 +40,7 @@ class TestMonitoringRules(unittest.TestCase):
 
     def setUp(self):
         """Set up a default config object for all tests."""
-        self.config = MockConfig(
+        self.config = MockFullConfig(
             risk=MockRiskConfig(
                 leg_stop_loss_pct=100.0,  # SL triggers if mark_price >= 2 * entry_price
                 take_profit_pct=50.0     # TP triggers if mark_price <= 0.5 * entry_price
@@ -48,35 +49,30 @@ class TestMonitoringRules(unittest.TestCase):
 
     def test_stop_loss_triggered(self):
         """Test when mark price exceeds the stop-loss threshold."""
-        # Entry at $10, SL is 100%, so threshold is $20. Mark price is $21.
         position = create_mock_position("P1", "sell", 1, 10.0, 21.0)
         rules = MonitorRules(self.config, position, spot_price=999) # spot_price doesn't matter for this rule
         self.assertTrue(rules.should_stop_loss())
 
     def test_stop_loss_not_triggered(self):
         """Test when mark price is below the stop-loss threshold."""
-        # Entry at $10, SL threshold is $20. Mark price is $19.
         position = create_mock_position("P1", "sell", 1, 10.0, 19.0)
         rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_stop_loss())
 
     def test_take_profit_triggered(self):
         """Test when mark price falls below the take-profit threshold."""
-        # Entry at $10, TP is 50%, so threshold is $5. Mark price is $4.
         position = create_mock_position("P1", "sell", 1, 10.0, 4.0)
         rules = MonitorRules(self.config, position, spot_price=999)
         self.assertTrue(rules.should_take_profit())
 
     def test_take_profit_not_triggered(self):
         """Test when mark price is above the take-profit threshold."""
-        # Entry at $10, TP threshold is $5. Mark price is $6.
         position = create_mock_position("P1", "sell", 1, 10.0, 6.0)
         rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_take_profit())
 
     def test_rules_do_not_apply_to_long_positions(self):
         """Test that SL/TP rules for short positions do not trigger for long positions."""
-        # Long position that would otherwise trigger SL
         position = create_mock_position("C1", "buy", 1, 10.0, 21.0)
         rules = MonitorRules(self.config, position, spot_price=999)
         self.assertFalse(rules.should_stop_loss())

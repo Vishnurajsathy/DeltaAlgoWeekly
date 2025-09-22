@@ -6,7 +6,7 @@ from loguru import logger
 from .delta_api import DeltaAPIClient
 from .models import MarketDataSnapshot, OptionsChain, Option, Ticker, AccountInfo, Position, Greeks
 from ..utils.cfg import Config
-from ..utils.time import get_next_weekly_expiry, get_ist_time
+from ..utils.time import get_next_weekly_expiry, get_next_monthly_expiry, get_ist_time
 
 class DataIngestor:
     """
@@ -85,6 +85,22 @@ class DataIngestor:
 
         futures_ticker_raw = self.client.get_ticker(self.config.general.symbols.futures)
 
+        # Get monthly options chain for hedging
+        monthly_expiry_date = get_next_monthly_expiry()
+        monthly_expiry_datetime = datetime.combine(monthly_expiry_date, datetime.min.time())
+        monthly_chain_tickers = self.client.get_options_chain_tickers(
+            underlying_asset=self.config.general.symbols.underlying.replace('USDT', ''),
+            expiry_date=monthly_expiry_date.strftime('%d-%m-%Y')
+        )
+        monthly_calls = [self._map_ticker_to_option(t, monthly_expiry_datetime) for t in monthly_chain_tickers if t['contract_type'] == 'call_options']
+        monthly_puts = [self._map_ticker_to_option(t, monthly_expiry_datetime) for t in monthly_chain_tickers if t['contract_type'] == 'put_options']
+        monthly_options_chain = OptionsChain(
+            underlying=self.config.general.symbols.underlying,
+            expiry=monthly_expiry_datetime,
+            calls=monthly_calls,
+            puts=monthly_puts
+        )
+
         # 3. Process and map data to our Pydantic models
         account_info = self._map_balances_to_account_info(balances)
 
@@ -106,6 +122,7 @@ class DataIngestor:
             account_info=account_info,
             positions=positions,
             options_chain=options_chain,
+            monthly_options_chain=monthly_options_chain,
             futures_ticker=futures_ticker
         )
 

@@ -14,13 +14,13 @@ from src.data.models import OptionsChain, Option, Greeks
 # --- Mock Objects for Testing ---
 
 @dataclass
-class MockConfig:
-    entry: 'MockEntryConfig'
-
-@dataclass
 class MockEntryConfig:
     weekly_target_delta: List[float]
     min_credit_usdt_per_leg: float
+
+@dataclass
+class MockConfig:
+    entry: MockEntryConfig
 
 def create_mock_option(symbol: str, o_type: str, strike: float, delta: float, bid: float) -> Option:
     """Helper function to create mock Option objects for testing."""

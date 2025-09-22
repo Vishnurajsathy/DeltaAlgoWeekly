@@ -90,5 +90,6 @@ class MarketDataSnapshot(BaseModel):
     timestamp: datetime
     account_info: Optional[AccountInfo] = None
     positions: List[Position] = []
-    options_chain: Optional[OptionsChain] = None
+    options_chain: Optional[OptionsChain] = None  # This will be for the weekly options
+    monthly_options_chain: Optional[OptionsChain] = None  # For the monthly hedge
     futures_ticker: Optional[Ticker] = None

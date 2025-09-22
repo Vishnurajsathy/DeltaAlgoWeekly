@@ -109,7 +109,6 @@ def main():
                     logger.info(f"No actions needed for {len(snapshot.positions)} open position(s). Continuing to monitor.")
                     # Stay in MONITOR state
 
-
             # ... other states like ADJUST, HEDGE_ROLL will be added here ...
 
             # 3. Sleep until next cycle
