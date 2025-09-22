@@ -3,15 +3,17 @@ from typing import List, Optional
 
 from ..utils.cfg import Config
 from ..data.models import MarketDataSnapshot, Position, Option
+from ..data.stores import TradeJournal
 
 class PrecheckRules:
     """
     Encapsulates the set of rules to be checked in the PRECHECK state
     before the bot attempts to enter any trades.
     """
-    def __init__(self, config: Config, snapshot: MarketDataSnapshot):
+    def __init__(self, config: Config, snapshot: MarketDataSnapshot, journal: TradeJournal):
         self.config = config
         self.snapshot = snapshot
+        self.journal = journal
         self.errors: List[str] = []
 
     def check_api_health(self) -> bool:
@@ -48,10 +50,39 @@ class PrecheckRules:
 
     def check_loss_limits(self) -> bool:
         """
-        Placeholder for checking daily/weekly loss limits.
-        This requires a persistent trade journal, which is not yet implemented.
+        Checks if the bot has breached its daily or weekly loss limits by querying the trade journal.
         """
-        logger.debug("Loss Limit Check: SKIPPED (Not Implemented)")
+        if not self.snapshot.account_info or self.snapshot.account_info.equity == 0:
+            self.errors.append("Loss Limit Check Failed: Cannot check limits without account equity.")
+            return False  # Fail safe
+
+        equity = self.snapshot.account_info.equity
+
+        # Check daily loss
+        daily_pnl = self.journal.get_daily_pnl()
+        if daily_pnl < 0:
+            daily_loss_pct = abs(daily_pnl / equity) * 100
+            max_daily_loss_pct = self.config.risk.max_daily_loss_pct
+            if daily_loss_pct > max_daily_loss_pct:
+                self.errors.append(
+                    f"Daily Loss Limit BREACHED: Loss of {daily_loss_pct:.2f}% "
+                    f"exceeds limit of {max_daily_loss_pct}%."
+                )
+                return False
+
+        # Check weekly loss
+        weekly_pnl = self.journal.get_weekly_pnl()
+        if weekly_pnl < 0:
+            weekly_loss_pct = abs(weekly_pnl / equity) * 100
+            max_weekly_loss_pct = self.config.risk.max_weekly_loss_pct
+            if weekly_loss_pct > max_weekly_loss_pct:
+                self.errors.append(
+                    f"Weekly Loss Limit BREACHED: Loss of {weekly_loss_pct:.2f}% "
+                    f"exceeds limit of {max_weekly_loss_pct}%."
+                )
+                return False
+
+        logger.debug(f"Loss Limit Check: OK (Daily PnL: {daily_pnl:.2f}, Weekly PnL: {weekly_pnl:.2f})")
         return True
 
     def check_iv_rank(self) -> bool:

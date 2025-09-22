@@ -8,8 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.strategy.rules import MonitorRules
 from src.data.models import Position
-from src.utils.cfg import Config
-
 # --- Mock Objects for Testing ---
 
 @dataclass
@@ -18,7 +16,7 @@ class MockRiskConfig:
     take_profit_pct: float
 
 @dataclass
-class MockFullConfig(Config):
+class MockConfig:
     risk: MockRiskConfig
 
 def create_mock_position(symbol: str, side: str, size: float, entry: float, mark: float) -> Position:
@@ -40,7 +38,7 @@ class TestMonitoringRules(unittest.TestCase):
 
     def setUp(self):
         """Set up a default config object for all tests."""
-        self.config = MockFullConfig(
+        self.config = MockConfig(
             risk=MockRiskConfig(
                 leg_stop_loss_pct=100.0,  # SL triggers if mark_price >= 2 * entry_price
                 take_profit_pct=50.0     # TP triggers if mark_price <= 0.5 * entry_price
