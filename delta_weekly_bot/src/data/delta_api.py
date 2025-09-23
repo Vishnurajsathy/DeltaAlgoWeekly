@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlencode
+from datetime import datetime
 
 import requests
 from loguru import logger
@@ -168,3 +169,25 @@ class DeltaAPIClient:
         self.api_key, self.api_secret = original_key, original_secret
 
         return response.get('result', {})
+
+    def get_historical_candles(
+        self, symbol: str, resolution: str, start_time: datetime, end_time: datetime
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetches historical OHLC candles for a given symbol and resolution.
+        This is a public endpoint.
+        """
+        path = "/v2/history/candles"
+        params = {
+            "symbol": symbol,
+            "resolution": resolution,
+            "start": int(start_time.timestamp()),
+            "end": int(end_time.timestamp()),
+        }
+
+        original_key, original_secret = self.api_key, self.api_secret
+        self.api_key, self.api_secret = None, None
+        response = self._send_request("GET", path, params=params)
+        self.api_key, self.api_secret = original_key, original_secret
+
+        return response.get('result', [])

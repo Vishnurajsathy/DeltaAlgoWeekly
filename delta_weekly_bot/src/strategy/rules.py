@@ -4,16 +4,20 @@ from typing import List, Optional
 from ..utils.cfg import Config
 from ..data.models import MarketDataSnapshot, Position, Option
 from ..data.stores import TradeJournal
+from ..data.delta_api import DeltaAPIClient
+from ..analytics.volatility import calculate_iv_rank
+from datetime import datetime, timedelta, UTC
 
 class PrecheckRules:
     """
     Encapsulates the set of rules to be checked in the PRECHECK state
     before the bot attempts to enter any trades.
     """
-    def __init__(self, config: Config, snapshot: MarketDataSnapshot, journal: TradeJournal):
+    def __init__(self, config: Config, snapshot: MarketDataSnapshot, journal: TradeJournal, client: DeltaAPIClient):
         self.config = config
         self.snapshot = snapshot
         self.journal = journal
+        self.client = client
         self.errors: List[str] = []
 
     def check_api_health(self) -> bool:
@@ -87,10 +91,55 @@ class PrecheckRules:
 
     def check_iv_rank(self) -> bool:
         """
-        Placeholder for checking if the Implied Volatility Rank (IVR) meets the minimum threshold.
-        This requires historical IV data and the analytics module.
+        Checks if the Implied Volatility Rank (IVR) meets the minimum threshold.
         """
-        logger.debug("IV Rank Check: SKIPPED (Not Implemented)")
+        min_ivr_threshold = self.config.filters.iv.min_ivr
+        if min_ivr_threshold <= 0:
+            logger.debug("IV Rank Check: SKIPPED (Threshold is zero or negative)")
+            return True
+
+        # 1. Find current IV from the ATM option
+        if not self.snapshot.options_chain or not self.snapshot.futures_ticker:
+            self.errors.append("IV Rank Check Failed: Missing options chain or spot price.")
+            return False
+
+        spot_price = self.snapshot.futures_ticker.mark_price
+        atm_option = min(self.snapshot.options_chain.calls, key=lambda x: abs(x.strike - spot_price))
+
+        if not atm_option or not atm_option.greeks or not atm_option.greeks.iv:
+            self.errors.append("IV Rank Check Failed: Could not determine current IV from ATM option.")
+            return False
+        current_iv = atm_option.greeks.iv
+
+        # 2. Get historical IV series.
+        # We will use the closing prices of a volatility index product as a proxy for historical IV.
+        # TODO: Make the volatility index symbol configurable.
+        vol_index_symbol = f"DVOL_{self.config.general.symbols.underlying.replace('USDT','')}"
+
+        end_time = datetime.now(UTC)
+        start_time = end_time - timedelta(days=365)
+
+        try:
+            candles = self.client.get_historical_candles(vol_index_symbol, "1d", start_time, end_time)
+            if not candles:
+                self.errors.append(f"IV Rank Check Failed: Could not fetch historical data for {vol_index_symbol}.")
+                return False
+
+            historical_iv_series = [float(c['close']) for c in candles]
+        except Exception as e:
+            self.errors.append(f"IV Rank Check Failed: Error fetching historical data: {e}")
+            return False
+
+        # 3. Calculate IVR
+        ivr = calculate_iv_rank(current_iv, historical_iv_series)
+
+        if ivr < min_ivr_threshold:
+            self.errors.append(
+                f"IV Rank Check Failed: Current IVR ({ivr:.2f}%) is below threshold ({min_ivr_threshold}%)"
+            )
+            return False
+
+        logger.debug(f"IV Rank Check: OK (IVR: {ivr:.2f}% >= {min_ivr_threshold}%)")
         return True
 
     def are_all_checks_ok(self) -> bool:

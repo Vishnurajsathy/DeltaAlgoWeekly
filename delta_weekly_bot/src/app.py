@@ -67,7 +67,7 @@ def main():
 
                 # 2. State-based Logic
                 if state_machine.state == BotState.PRECHECK:
-                    rules = PrecheckRules(config, snapshot, journal)
+                    rules = PrecheckRules(config, snapshot, journal, api_client)
                     if rules.are_all_checks_ok():
                         state_machine.transition(BotState.ENTER)
                     else:
