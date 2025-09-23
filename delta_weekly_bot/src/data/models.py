@@ -44,6 +44,7 @@ class Position(BaseModel):
     mark_price: float
     unrealized_pnl: float
     realized_pnl: float
+    delta: Optional[float] = None # Added for easier delta calculation
 
 class AccountInfo(BaseModel):
     """Represents overall account information."""

@@ -6,9 +6,10 @@ from ..utils.cfg import Config
 from ..data.models import MarketDataSnapshot
 from ..analytics.strikes import select_short_strangle_legs, select_new_leg_for_roll
 from ..broker.orders import PlaceOrderAction, CloseOrderAction, RollOrderAction
-from .sizing import get_position_size, get_hedge_size
-from .rules import MonitorRules
+from .sizing import get_position_size, get_hedge_size, get_delta_hedge_size
+from .rules import MonitorRules, PortfolioRules
 from .hedge import select_monthly_hedge_legs
+from ..analytics.greeks import calculate_portfolio_delta
 
 class StrategyEngine:
     """
@@ -83,25 +84,34 @@ class StrategyEngine:
 
         return actions
 
-    def handle_monitor_state(self, snapshot: MarketDataSnapshot) -> List[Union[CloseOrderAction, RollOrderAction]]:
+    def handle_monitor_state(self, snapshot: MarketDataSnapshot) -> List[Union[CloseOrderAction, RollOrderAction, PlaceOrderAction]]:
         """
         Handles the logic for the MONITOR state. It checks each open position
-        for SL/TP triggers or threats that require adjustment.
+        for SL/TP triggers or threats, and then checks the portfolio's overall
+        delta to see if a hedge is required.
         """
         logger.info(f"Handling MONITOR state: Checking {len(snapshot.positions)} open position(s).")
 
-        actions: List[Union[CloseOrderAction, RollOrderAction]] = []
+        actions: List[Union[CloseOrderAction, RollOrderAction, PlaceOrderAction]] = []
 
         if not snapshot.positions or not snapshot.options_chain or not snapshot.futures_ticker:
             logger.warning("Cannot monitor positions without position data, options chain, or spot price.")
             return actions
 
+        # --- Per-leg checks (SL, TP, Adjustments) ---
         option_details_map = {opt.instrument_id: opt for opt in snapshot.options_chain.calls}
         option_details_map.update({opt.instrument_id: opt for opt in snapshot.options_chain.puts})
+        if snapshot.monthly_options_chain:
+            option_details_map.update({opt.instrument_id: opt for opt in snapshot.monthly_options_chain.calls})
+            option_details_map.update({opt.instrument_id: opt for opt in snapshot.monthly_options_chain.puts})
 
         spot_price = snapshot.futures_ticker.mark_price
 
         for position in snapshot.positions:
+            # We only monitor the short weekly options for SL/TP/threats
+            if position.instrument_id not in snapshot.options_chain.calls and position.instrument_id not in snapshot.options_chain.puts:
+                continue
+
             option_details = option_details_map.get(position.instrument_id)
             if not option_details:
                 logger.warning(f"Could not find option details for position {position.symbol}. Skipping.")
@@ -114,27 +124,38 @@ class StrategyEngine:
             elif rules.should_take_profit():
                 actions.append(CloseOrderAction(position_to_close=position, reason="take_profit"))
             elif rules.is_leg_threatened():
-                logger.info(f"Leg {position.symbol} is threatened. Attempting to find a roll opportunity.")
                 new_leg_option = select_new_leg_for_roll(option_details, snapshot.options_chain, self.config)
-
                 if new_leg_option:
-                    size = abs(position.size)
-                    place_order_action = PlaceOrderAction(
-                        product_id=new_leg_option.instrument_id,
-                        symbol=new_leg_option.symbol,
-                        side="sell",
-                        size=int(size),
-                        order_type="limit",
-                        limit_price=new_leg_option.best_bid
-                    )
-                    roll_action = RollOrderAction(
+                    actions.append(RollOrderAction(
                         position_to_close=position,
-                        new_order_to_open=place_order_action,
+                        new_order_to_open=PlaceOrderAction(
+                            product_id=new_leg_option.instrument_id, symbol=new_leg_option.symbol,
+                            side="sell", size=int(abs(position.size)), order_type="limit",
+                            limit_price=new_leg_option.best_bid
+                        ),
                         reason="threatened"
-                    )
-                    actions.append(roll_action)
-                    logger.success(f"Generated roll action for {position.symbol} to {new_leg_option.symbol}.")
-                else:
-                    logger.warning(f"Leg {position.symbol} is threatened, but no suitable roll opportunity was found.")
+                    ))
+
+        # If we are already closing or rolling a leg, don't also delta hedge in the same cycle.
+        if actions:
+            return actions
+
+        # --- Portfolio-level checks (Delta Hedging) ---
+        portfolio_delta = calculate_portfolio_delta(snapshot)
+        portfolio_rules = PortfolioRules(self.config, portfolio_delta)
+
+        if portfolio_rules.is_delta_hedge_needed():
+            hedge_size = get_delta_hedge_size(
+                portfolio_delta, snapshot.futures_ticker, snapshot.account_info, self.config
+            )
+            if abs(hedge_size) > 0.001: # Add a small threshold to avoid tiny, meaningless hedges
+                futures_product_id = snapshot.futures_ticker.product_id
+                actions.append(PlaceOrderAction(
+                    product_id=futures_product_id,
+                    symbol=self.config.general.symbols.futures,
+                    side="buy" if hedge_size > 0 else "sell",
+                    size=abs(hedge_size),
+                    order_type="market"
+                ))
 
         return actions
